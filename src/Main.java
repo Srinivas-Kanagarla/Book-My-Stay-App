@@ -1,102 +1,92 @@
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.stream.Collectors;
 
-// --- Core Room Logic (UC2) ---
-abstract class Room {
-  private String type;
-  private double price;
+// --- Domain Model ---
+class Reservation {
+  private String bookingId;
+  private String customerName;
+  private double amount;
 
-  public Room(String type, double price) {
-    this.type = type;
-    this.price = price;
+  public Reservation(String bookingId, String customerName, double amount) {
+    this.bookingId = bookingId;
+    this.customerName = customerName;
+    this.amount = amount;
   }
 
-  public String getType() { return type; }
-  public double getPrice() { return price; }
+  @Override
+  public String toString() {
+    return String.format("ID: %s | Customer: %s | Amount: $%.2f", bookingId, customerName, amount);
+  }
+
+  public double getAmount() { return amount; }
 }
 
-class SingleRoom extends Room { public SingleRoom() { super("Single", 100.0); } }
-class DoubleRoom extends Room { public DoubleRoom() { super("Double", 180.0); } }
+// --- Storage Layer (Booking History) ---
+class BookingHistory {
+  // List preserves insertion order for chronological tracking
+  private List<Reservation> history = new ArrayList<>();
 
-// --- Inventory Management (UC3 & UC4) ---
-class RoomInventory {
-  private Map<String, Integer> counts = new HashMap<>();
-
-  public void addRooms(String type, int count) { counts.put(type, count); }
-
-  public int getCount(String type) {
-    return counts.getOrDefault(type, 0);
+  public void addRecord(Reservation reservation) {
+    history.add(reservation);
   }
 
-  public void updateAvailability(String type, int change) {
-    if (counts.containsKey(type)) {
-      counts.put(type, counts.get(type) + change);
-    }
-  }
-}
-
-// --- Request Handling (UC5) ---
-class ReservationRequest {
-  private String guestName;
-  private String roomType;
-
-  public ReservationRequest(String guestName, String roomType) {
-    this.guestName = guestName;
-    this.roomType = roomType;
-  }
-
-  public String getGuestName() { return guestName; }
-  public String getRoomType() { return roomType; }
-}
-
-// --- Allocation Logic (UC6) ---
-class BookingService {
-  private RoomInventory inventory;
-  private Set<String> allocatedRoomIDs;
-
-  public BookingService(RoomInventory inventory) {
-    this.inventory = inventory;
-    this.allocatedRoomIDs = new HashSet<>();
-  }
-
-  public void processQueue(Queue<ReservationRequest> queue) {
-    System.out.println("--- Processing Reservations (FIFO) ---");
-    while (!queue.isEmpty()) {
-      ReservationRequest request = queue.poll();
-      String type = request.getRoomType();
-
-      if (inventory.getCount(type) > 0) {
-        // Generate Unique ID and update inventory
-        String id = type.substring(0, 1).toUpperCase() + "-" + System.nanoTime() % 1000;
-        allocatedRoomIDs.add(id);
-        inventory.updateAvailability(type, -1);
-
-        System.out.println("SUCCESS: " + request.getGuestName() + " assigned to " + id);
-      } else {
-        System.out.println("FAILED: No " + type + " rooms left for " + request.getGuestName());
-      }
-    }
+  public List<Reservation> getAllRecords() {
+    // Returning a copy to ensure reporting does not modify original data
+    return new ArrayList<>(history);
   }
 }
 
-// --- Entry Point ---
+// --- Reporting Layer (Booking Report Service) ---
+class BookingReportService {
+  private BookingHistory bookingHistory;
+
+  public BookingReportService(BookingHistory history) {
+    this.bookingHistory = history;
+  }
+
+  public void generateSummaryReport() {
+    List<Reservation> records = bookingHistory.getAllRecords();
+
+    double totalRevenue = records.stream()
+            .mapToDouble(Reservation::getAmount)
+            .sum();
+
+    System.out.println("\n--- OPERATIONAL SUMMARY REPORT ---");
+    System.out.println("Total Bookings Processed: " + records.size());
+    System.out.println("Total Revenue Generated: $" + totalRevenue);
+    System.out.println("----------------------------------\n");
+  }
+
+  public void showDetailedHistory() {
+    System.out.println("--- DETAILED AUDIT TRAIL (Insertion Order) ---");
+    bookingHistory.getAllRecords().forEach(System.out::println);
+  }
+}
+
+// --- Main Application ---
 public class Main {
   public static void main(String[] args) {
-    // 1. Initialize Inventory
-    RoomInventory inventory = new RoomInventory();
-    inventory.addRooms("Single", 2);
-    inventory.addRooms("Double", 1);
+    // Initialize Components
+    BookingHistory historyStore = new BookingHistory();
+    BookingReportService reportService = new BookingReportService(historyStore);
 
-    // 2. Setup Booking Queue (FIFO)
-    Queue<ReservationRequest> queue = new LinkedList<>();
-    queue.add(new ReservationRequest("Alice", "Single"));
-    queue.add(new ReservationRequest("Bob", "Double"));
-    queue.add(new ReservationRequest("Charlie", "Double")); // Should fail (only 1 Double exists)
-    queue.add(new ReservationRequest("Diana", "Single"));
+    // 1. Simulate Bookings being confirmed
+    System.out.println("System: Processing bookings...");
 
-    // 3. Run Allocation Service
-    BookingService service = new BookingService(inventory);
-    service.processQueue(queue);
+    Reservation res1 = new Reservation("BK001", "Alice", 150.00);
+    historyStore.addRecord(res1);
 
-    System.out.println("\nProcess Complete.");
+    Reservation res2 = new Reservation("BK002", "Bob", 200.50);
+    historyStore.addRecord(res2);
+
+    Reservation res3 = new Reservation("BK003", "Charlie", 120.00);
+    historyStore.addRecord(res3);
+
+    // 2. Admin Actor requests visibility
+    System.out.println("Admin: Requesting reports...");
+
+    reportService.showDetailedHistory();
+    reportService.generateSummaryReport();
   }
 }

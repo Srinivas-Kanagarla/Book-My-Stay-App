@@ -1,67 +1,74 @@
+import java.io.*;
 import java.util.ArrayList;
 import java.util.List;
 
-class HotelInventory {
-  private int availableRooms = 3; // Limited inventory to test contention
+// --- Domain Model (Must be Serializable) ---
+class SystemState implements Serializable {
+  private static final long serialVersionUID = 1L;
+  public int availableRooms;
+  public List<String> bookingHistory;
 
-  // The 'synchronized' keyword ensures only one guest can book at a time
-  public synchronized boolean bookRoom(String guestName) {
-    System.out.println(guestName + " is attempting to book...");
-
-    if (availableRooms > 0) {
-      // Simulate a small delay in processing to highlight potential race conditions
-      try { Thread.sleep(100); } catch (InterruptedException e) {}
-
-      availableRooms--;
-      System.out.println("SUCCESS: " + guestName + " secured a room. Rooms left: " + availableRooms);
-      return true;
-    } else {
-      System.out.println("FAILED: No rooms left for " + guestName);
-      return false;
-    }
-  }
-
-  public int getAvailableRooms() {
-    return availableRooms;
+  public SystemState(int rooms, List<String> history) {
+    this.availableRooms = rooms;
+    this.bookingHistory = history;
   }
 }
 
-class GuestRequest implements Runnable {
-  private HotelInventory inventory;
-  private String name;
+// --- Persistence Service ---
+class PersistenceService {
+  private static final String FILE_NAME = "hotel_data.ser";
 
-  public GuestRequest(HotelInventory inventory, String name) {
-    this.inventory = inventory;
-    this.name = name;
+  public void saveState(int rooms, List<String> history) {
+    try (ObjectOutputStream oos = new ObjectOutputStream(new FileOutputStream(FILE_NAME))) {
+      SystemState state = new SystemState(rooms, history);
+      oos.writeObject(state);
+      System.out.println(">> System state saved successfully to " + FILE_NAME);
+    } catch (IOException e) {
+      System.err.println("Error saving state: " + e.getMessage());
+    }
   }
 
-  @Override
-  public void run() {
-    inventory.bookRoom(name);
+  public SystemState loadState() {
+    File file = new File(FILE_NAME);
+    if (!file.exists()) {
+      System.out.println(">> No saved state found. Starting fresh.");
+      return null;
+    }
+
+    try (ObjectInputStream ois = new ObjectInputStream(new FileInputStream(FILE_NAME))) {
+      System.out.println(">> Recovery successful! Restoring previous state...");
+      return (SystemState) ois.readObject();
+    } catch (IOException | ClassNotFoundException e) {
+      System.err.println("Error recovering state: " + e.getMessage());
+      return null;
+    }
   }
 }
 
 public class Main {
-  public static void main(String[] args) throws InterruptedException {
-    HotelInventory sharedInventory = new HotelInventory();
-    List<Thread> guests = new ArrayList<>();
+  public static void main(String[] args) {
+    PersistenceService persistence = new PersistenceService();
 
-    System.out.println("--- Starting Concurrent Booking Simulation ---");
-    System.out.println("Initial Inventory: " + sharedInventory.getAvailableRooms() + "\n");
+    // 1. System Startup / Recovery
+    SystemState recovered = persistence.loadState();
+    int currentRooms = (recovered != null) ? recovered.availableRooms : 10;
+    List<String> history = (recovered != null) ? recovered.bookingHistory : new ArrayList<>();
 
-    // Simulate 6 guests trying to book 3 rooms simultaneously
-    for (int i = 1; i <= 6; i++) {
-      Thread t = new Thread(new GuestRequest(sharedInventory, "Guest-" + i));
-      guests.add(t);
-      t.start();
+    System.out.println("Current Inventory: " + currentRooms);
+    System.out.println("Current History Size: " + history.size());
+
+    // 2. Simulate some activity
+    System.out.println("\nProcessing new booking...");
+    if (currentRooms > 0) {
+      currentRooms--;
+      history.add("Booking_" + System.currentTimeMillis());
     }
 
-    // Wait for all threads to finish
-    for (Thread t : guests) {
-      t.join();
-    }
+    // 3. System Shutdown / Persistence
+    System.out.println("\nShutting down...");
+    persistence.saveState(currentRooms, history);
 
-    System.out.println("\n--- Simulation Complete ---");
-    System.out.println("Final Room Count: " + sharedInventory.getAvailableRooms());
+    System.out.println("Final State - Rooms: " + currentRooms + ", History: " + history.size());
+    System.out.println("(Run the program again to see the values persist!)");
   }
 }

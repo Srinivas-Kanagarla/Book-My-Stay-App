@@ -1,92 +1,77 @@
-import java.util.ArrayList;
-import java.util.List;
-import java.util.stream.Collectors;
+import java.util.*;
 
-// --- Domain Model ---
-class Reservation {
-  private String bookingId;
-  private String customerName;
-  private double amount;
-
-  public Reservation(String bookingId, String customerName, double amount) {
-    this.bookingId = bookingId;
-    this.customerName = customerName;
-    this.amount = amount;
-  }
-
-  @Override
-  public String toString() {
-    return String.format("ID: %s | Customer: %s | Amount: $%.2f", bookingId, customerName, amount);
-  }
-
-  public double getAmount() { return amount; }
-}
-
-// --- Storage Layer (Booking History) ---
-class BookingHistory {
-  // List preserves insertion order for chronological tracking
-  private List<Reservation> history = new ArrayList<>();
-
-  public void addRecord(Reservation reservation) {
-    history.add(reservation);
-  }
-
-  public List<Reservation> getAllRecords() {
-    // Returning a copy to ensure reporting does not modify original data
-    return new ArrayList<>(history);
+// Custom Exception
+class InvalidBookingException extends Exception {
+  public InvalidBookingException(String message) {
+    super(message);
   }
 }
 
-// --- Reporting Layer (Booking Report Service) ---
-class BookingReportService {
-  private BookingHistory bookingHistory;
+// Booking System
+class BookingSystem {
+  private Map<String, Integer> inventory = new HashMap<>();
+  private List<String> history = new ArrayList<>();
 
-  public BookingReportService(BookingHistory history) {
-    this.bookingHistory = history;
+  // Add room type
+  public void addRoomType(String type, int count) {
+    inventory.put(type, inventory.getOrDefault(type, 0) + count);
   }
 
-  public void generateSummaryReport() {
-    List<Reservation> records = bookingHistory.getAllRecords();
+  // Process booking
+  public void processBooking(String bookingId, String type, int qty)
+          throws InvalidBookingException {
 
-    double totalRevenue = records.stream()
-            .mapToDouble(Reservation::getAmount)
-            .sum();
+    if (!inventory.containsKey(type)) {
+      throw new InvalidBookingException("Room type '" + type + "' does not exist.");
+    }
 
-    System.out.println("\n--- OPERATIONAL SUMMARY REPORT ---");
-    System.out.println("Total Bookings Processed: " + records.size());
-    System.out.println("Total Revenue Generated: $" + totalRevenue);
-    System.out.println("----------------------------------\n");
+    int available = inventory.get(type);
+
+    if (qty > available) {
+      throw new InvalidBookingException(
+              "Not enough rooms available. Requested: " + qty + ", Available: " + available);
+    }
+
+    // Deduct inventory
+    inventory.put(type, available - qty);
+
+    // Save history
+    history.add("ID: " + bookingId + " | Room: " + type + " | Qty: " + qty);
+
+    System.out.println("Success: Booking " + bookingId + " confirmed!");
   }
 
-  public void showDetailedHistory() {
-    System.out.println("--- DETAILED AUDIT TRAIL (Insertion Order) ---");
-    bookingHistory.getAllRecords().forEach(System.out::println);
+  // Show booking history
+  public void showHistory() {
+    System.out.println("\n--- Current Booking History ---");
+    for (String record : history) {
+      System.out.println(record);
+    }
+
+    int total = inventory.values().stream().mapToInt(Integer::intValue).sum();
+    System.out.println("Remaining Inventory: " + total);
   }
 }
 
-// --- Main Application ---
+// Main Class (ONLY public class)
 public class Main {
   public static void main(String[] args) {
-    // Initialize Components
-    BookingHistory historyStore = new BookingHistory();
-    BookingReportService reportService = new BookingReportService(historyStore);
 
-    // 1. Simulate Bookings being confirmed
-    System.out.println("System: Processing bookings...");
+    BookingSystem system = new BookingSystem();
 
-    Reservation res1 = new Reservation("BK001", "Alice", 150.00);
-    historyStore.addRecord(res1);
+    // Setup inventory
+    system.addRoomType("Standard", 5);
+    system.addRoomType("Deluxe", 3);
+    system.addRoomType("Penthouse", 2);
 
-    Reservation res2 = new Reservation("BK002", "Bob", 200.50);
-    historyStore.addRecord(res2);
+    try {
+      system.processBooking("BK001", "Standard", 2);
+      system.processBooking("BK002", "Penthouse", 1);
+      system.processBooking("BK003", "Standard", 3); // valid now
+    } catch (InvalidBookingException e) {
+      System.err.println("Error: " + e.getMessage());
+    }
 
-    Reservation res3 = new Reservation("BK003", "Charlie", 120.00);
-    historyStore.addRecord(res3);
-
-    // 2. Admin Actor requests visibility
-    System.out.println("Admin: Requesting reports...");
-
-    reportService.showDetailedHistory();
-    reportService.generateSummaryReport();
+    system.showHistory();
   }
 }
